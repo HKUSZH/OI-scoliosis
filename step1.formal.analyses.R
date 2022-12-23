@@ -4,15 +4,17 @@ library(ggplot2)
 library(gplots)
 
 
-genetics<-readxl::read_excel("OI-seq-summary-Nov-29-2022.xlsx", sheet = "SZH-OI")
+genetics<-readxl::read_excel("O:/B002_OI_Seq_reports/OI-seq-summary-Nov-29-2022.xlsx", sheet = "SZH-OI")
 
 
 patientInfo<-readxl::read_excel("patientInfo.xlsx", sheet = "basicInfo")
 patientInfo2<-patientInfo[match(SCOLIOSIS$hospital_id, as.matrix(patientInfo)[,20]), ]
 patientInfo2[["DOB"]]<-substr(as.matrix(patientInfo2)[,6], 1, 10)
+################################################
 
-SCOLIOSIS0<-readxl::read_excel("Dec19-OIwithscoliosisandgenetype_aug30V2.0.LLD.xlsx", sheet = "pkchen")
+SCOLIOSIS0<-readxl::read_excel("Dec23-OIwithscoliosisandgenetype_aug30V2.0.LLD.xlsx", sheet = "pkchen")
 SCOLIOSIS<-SCOLIOSIS0[-which(SCOLIOSIS0$Genotype%in%c("PLOD2", "P4HB")), ]
+################################################
 
 tabGeno<-table(SCOLIOSIS$Genotype, SCOLIOSIS$Daniel, useNA="always")[,-5]
 tabGeno<-tabGeno[order(rowSums(tabGeno), decreasing=T), ]
@@ -102,6 +104,7 @@ LCobbAll<-lapply(seq(nrow(SCOLIOSIS)), function(i){
 })
 
 
+
 maxCobb<-t(sapply(LCobbAll, function(mat){
 	apply(mat, 1, max, na.rm=T)
 }))
@@ -109,7 +112,32 @@ maxCobb[maxCobb==-Inf]<- NA
 maxCobb2<-apply(maxCobb[,-1], 1, max, na.rm=T)
 
 MATmaxCobb<-maxCobb[,-1]
+#####################################################
 
+SCOLIOSIS[["severity"]]<-"--"
+SCOLIOSIS[["severity"]][maxCobb2<10]<-"non-scoliotic"
+SCOLIOSIS[["severity"]][maxCobb2>=10 & maxCobb2 <25]<-"mild"
+SCOLIOSIS[["severity"]][maxCobb2>=25 & maxCobb2 <50]<-"moderate"
+SCOLIOSIS[["severity"]][maxCobb2>50]<-"severe"
+#####################################
+curveShape<-sapply(LCobbAll, function(mat){
+	mat2<-mat[-1, , drop=F]
+	mat3<-mat2[rowSums(mat2>=10, na.rm=T)>0, , drop=F]
+
+	str1<-apply(!is.na(mat3), 1, function(x){
+		paste0(c("Tho", "TL", "Lum")[which(x)], collapse="&")
+	})
+	str2<-unique(str1)
+	str3<-paste0(str2, collapse="->")
+})
+
+tabShape<-table(curveShape, SCOLIOSIS$severity)
+tabShape2<-tabShape[order(rowSums(tabShape), decreasing=T), c(3, 1, 2, 4)][-2, ]
+
+numCurve<-sapply(strsplit(curveShape, "&"), length)
+tabShapeNum<-table(numCurve, SCOLIOSIS$severity)[, c(3, 1, 2, 4)]
+
+SCOLIOSIS[grep("->", curveShape), ]
 #####################################
 CobbSites<-sapply(seq(nrow(SCOLIOSIS)), function(i){
 	cobbi<-MATmaxCobb[i,]
@@ -165,13 +193,7 @@ rbind(table(maxCobb2<10, SCOLIOSIS$Daniel)[2, ],
 	table(maxCobb2>50, SCOLIOSIS$Daniel)[2, ])
 
 #####################################################
-#####################################################
 
-SCOLIOSIS[["severity"]]<-"--"
-SCOLIOSIS[["severity"]][maxCobb2<10]<-"non-scoliotic"
-SCOLIOSIS[["severity"]][maxCobb2>=10 & maxCobb2 <25]<-"mild"
-SCOLIOSIS[["severity"]][maxCobb2>=25 & maxCobb2 <50]<-"moderate"
-SCOLIOSIS[["severity"]][maxCobb2>50]<-"severe"
 
 #####################################################
 
@@ -322,7 +344,7 @@ inheritance[grepl("IFIT", SCOLIOSIS$Genotype)]<- "AD"
 
 drugs <-SCOLIOSIS$drugs 
 drugs[! drugs %in%c("Pamidronate", "Zoledronate")]<- NA 
-drugs[firstBPAgeGroup=="never"]<-"never"
+drugs[firstBPAgeGroup=="anever"]<-"anever"
 
 summary(lm(maxCobb2 ~ SCOLIOSIS$Sillence))
 
@@ -350,28 +372,12 @@ anova(Mod3, Mod4)
 summary(lm(maxCobb2 ~ AgeMaxCobb + firstBPAge + as.factor(SCOLIOSIS$LLD) + SCOLIOSIS$Genotype + drugs + SCOLIOSIS$Zscores + maxRisser))
 
 ###########################
+source("helpers.R")
 hasScoliosis<- SCOLIOSIS$severity != "non-scoliotic"
 isSevere<- SCOLIOSIS$severity == "severe"
 isModerSevere<- SCOLIOSIS$severity %in% c("moderate", "severe")
 
 
-MAKEREPORTS<-function(fit1){
-	s1<-summary(fit1)
-	mat1<-cbind(confint(fit1), s1$coefficients)
-	#print(mat1)
-	CI<-apply(round(mat1[,1:2], 2), 1, paste0, collapse= " ~ ")
-	str1<-paste0(round(mat1[, "Estimate"], 2), " (", CI, ")", sep="")
-
-	mat2<-round(exp(cbind(confint(fit1), OR = coef(fit1))), 2)
-	#print(mat2)
-	CI2<-apply(round(mat2[,1:2], 2), 1, paste0, collapse= " ~ ")
-	str2<-paste0(round(mat2[, "OR"], 2), " (", CI2, ")", sep="")
-
-	pval<-round(s1$coefficients[, "Pr(>|z|)"], 3)
-	cbind("log(OR) (CI)"=str1, 
-		"OR (CI)"=str2,
-		pval)
-}
 
 logistic_1 <- glm(hasScoliosis ~ AgeMaxCobb  + gender + geno2 +
 				drugs +  SCOLIOSIS$Zscores + factor(SCOLIOSIS$LLD), 
@@ -393,6 +399,66 @@ rep3<-MAKEREPORTS(logistic_3)
 xlsx::write.xlsx(cbind(rep1, rep2, rep3), "data-out/Table-5.logistic.xlsx", 
 	sheetName = "Table5", 
 	col.names = TRUE, row.names = TRUE, append = F)
+###########################
+library(survival)
+
+SCOLIOSIS.col<-SCOLIOSIS
+SCOLIOSIS.col[["hasScoliosis"]]<-hasScoliosis
+SCOLIOSIS.col[["isModerSevere"]]<-isModerSevere
+SCOLIOSIS.col[["isSevere"]]<-isSevere
+
+SCOLIOSIS.col[["AgeMaxCobb"]]<-AgeMaxCobb
+SCOLIOSIS.col[["geno2"]]<-AgeMaxCobb
+SCOLIOSIS.col[["DRUGS"]]<-drugs 
+SCOLIOSIS.col[["LLD"]]<-factor(SCOLIOSIS$LLD)
+SCOLIOSIS.col<-SCOLIOSIS.col[SCOLIOSIS.col$Genotype %in%c("COL1A1", "COL1A2"), ]
+
+
+colMod1 <- glm(hasScoliosis ~ AgeMaxCobb  + gender + Genotype +
+				drugs +  Zscores + LLD, 
+				family = "binomial", data=SCOLIOSIS.col)
+rep1<-MAKEREPORTS(colMod1)
+
+
+colMod2 <- glm(isModerSevere~ AgeMaxCobb  + gender +Genotype +
+				drugs +  Zscores + LLD, 
+				family = "binomial", data=SCOLIOSIS.col)
+rep2<-MAKEREPORTS(colMod2)
+
+
+colMod3 <- glm(isSevere~ AgeMaxCobb  + gender + Genotype +
+				drugs +  Zscores + LLD, 
+				family = "binomial", data=SCOLIOSIS.col)
+rep3<-MAKEREPORTS(colMod3)
+
+xlsx::write.xlsx(cbind(rep1, rep2, rep3), "data-out/Table-5.supplementary.logistic.for.Col1.only.xlsx", 
+	sheetName = "Table5", 
+	col.names = TRUE, row.names = TRUE, append = F)
+
+######################################################
+######################################################
+SCOLIOSIS[["geno"]]<-geno
+SCOLIOSIS[["geno2"]]<-geno2
+SCOLIOSIS[["geno3"]]<-geno3
+SCOLIOSIS[["LLDf"]]<-factor(SCOLIOSIS$LLD)
+SCOLIOSIS[["drugs2"]]<-drugs 
+SCOLIOSIS[["ColNonCol"]]<-Genotype 
+SCOLIOSIS[["inheritance"]]<-inheritance
+
+
+
+save(SCOLIOSIS, patientInfo, genetics, CobbSites,
+	curveShape, numCurve, LCobbAll, maxCobb2,
+	file="SCOLIOSIS.RData")
+
+
+
+
+
+
+
+
+
 
 
 
